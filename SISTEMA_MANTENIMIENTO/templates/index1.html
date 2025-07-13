@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <title>Sistema de Mantenimiento de Sensores</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 2rem;
+            background-color: #f0f2f5;
+        }
+        h1 {
+            color: #333;
+        }
+        form {
+            margin-bottom: 2rem;
+        }
+        input[type="file"] {
+            padding: 0.3rem;
+        }
+        button {
+            padding: 0.4rem 1rem;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-right: 0.3rem;
+            margin-bottom: 1rem;
+        }
+        .error {
+            color: red;
+            margin-top: 1rem;
+        }
+        .resultado {
+            background: white;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+        th, td {
+            border: 1px solid #aaa;
+            padding: 0.5rem;
+            text-align: left;
+        }
+        th {
+            background-color: #ddd;
+        }
+        .critico {
+            color: red;
+            font-weight: bold;
+        }
+        .riesgo {
+            color: orange;
+            font-weight: bold;
+        }
+        .ok {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sistema de Mantenimiento de Sensores</h1>
+
+    <form method="POST" enctype="multipart/form-data">
+        <label for="file">Sube tu archivo Excel (.xlsx):</label>
+        <input type="file" id="file" name="file" accept=".xlsx" required />
+        <button type="submit">Analizar</button>
+    </form>
+
+    {% if error %}
+        <div class="error">{{ error }}</div>
+    {% endif %}
+
+    {% if resultados %}
+        <h2>Resultados del análisis</h2>
+
+        {% for estacion, data in resultados.items() %}
+            <div class="resultado">
+                <h3>Estación: {{ estacion }}</h3>
+                <p><strong>Estado:</strong> 
+                   <span class="{{ data.estado }}">{{ data.estado | capitalize }}</span>
+                </p>
+                <p><strong>Total datos:</strong> {{ data.total }}</p>
+                <p><strong>Datos faltantes:</strong> {{ data.faltantes }} ({{ '%.2f' % data.porcentaje }}%)</p>
+
+                <div>
+                    <!-- Botones para escoger la pestaña -->
+                    <button type="button" onclick="mostrarSeccion('{{ estacion }}', 'faltantes')">Fechas con datos faltantes</button>
+                    <button type="button" onclick="mostrarSeccion('{{ estacion }}', 'anomalias')">Anomalías detectadas</button>
+                    <button type="button" onclick="mostrarSeccion('{{ estacion }}', 'reporte')">Reporte mensual resumido</button>
+                </div>
+
+                <!-- Secciones, solo una visible a la vez -->
+                <div id="{{ estacion }}-faltantes" class="seccion-estacion">
+                  <h4>Fechas con datos faltantes</h4>
+                  {% if data.fechas_faltantes %}
+                      <ul>
+                      {% for fecha in data.fechas_faltantes %}
+                          <li>{{ fecha }}</li>
+                      {% endfor %}
+                      </ul>
+                  {% else %}
+                      <p>No hay datos faltantes.</p>
+                  {% endif %}
+                </div>
+
+                <div id="{{ estacion }}-anomalias" class="seccion-estacion" style="display:none;">
+                  <h4>Anomalías detectadas (variación % > umbral)</h4>
+                  {% if data.fechas_anomalias %}
+                      <table>
+                          <thead>
+                              <tr>
+                                  <th>Fecha</th>
+                                  <th>Variación (%)</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              {% for a in data.fechas_anomalias %}
+                              <tr>
+                                  <td>{{ a.Fecha_str }}</td>
+                                  <td>{{ '%.2f' % a.variacion }}</td>
+                              </tr>
+                              {% endfor %}
+                          </tbody>
+                      </table>
+                  {% else %}
+                      <p>No se detectaron anomalías relevantes.</p>
+                  {% endif %}
+                </div>
+
+                <div id="{{ estacion }}-reporte" class="seccion-estacion" style="display:none;">
+                  <h4>Reporte mensual resumido</h4>
+                  <table>
+                      <thead>
+                          <tr>
+                              <th>Mes</th>
+                              <th>Total registros</th>
+                              <th>Faltantes</th>
+                              <th>% Faltantes</th>
+                              <th>Promedio</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          {% for mes in data.reporte_mensual %}
+                          <tr>
+                              <td>{{ mes.mes.strftime('%Y-%m') }}</td>
+                              <td>{{ mes.total }}</td>
+                              <td>{{ mes.faltantes }}</td>
+                              <td>{{ '%.2f' % mes.porcentaje_faltantes }}</td>
+                              <td>{{ '%.2f' % mes.promedio if mes.promedio else 'N/A' }}</td>
+                          </tr>
+                          {% endfor %}
+                      </tbody>
+                  </table>
+                </div>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+<script>
+function mostrarSeccion(estacion, seccion) {
+  const secciones = ['faltantes', 'anomalias', 'reporte'];
+  secciones.forEach(s => {
+    const div = document.getElementById(estacion + '-' + s);
+    if(div) div.style.display = (s === seccion) ? 'block' : 'none';
+  });
+}
+</script>
+
+</body>
+</html>

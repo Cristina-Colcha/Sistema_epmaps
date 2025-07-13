@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sistema de Mantenimiento de Sensores</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://unpkg.com/leaflet/dist/leaflet.css" rel="stylesheet" />
+
+  <style>
+    body {
+      background-color: #f4f6f9;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    header {
+      text-align: center;
+      background: linear-gradient(to right, #384a64, #2f25eb);
+      color: white;
+      padding: 40px 0;
+      border-radius: 0 0 15px 15px;
+      margin-bottom: 30px;
+    }
+    .card {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      border-radius: 15px;
+    }
+    #map {
+      height: 250px;
+      border-radius: 15px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-bottom: 10px;
+    }
+    .estacion-info, .seccion-estacion {
+  max-height: 250px;       /* Altura máxima menor para compactar */
+  overflow-y: auto;        /* Scroll vertical si excede */
+  margin-bottom: 15px;     /* Menor espacio debajo */
+  padding: 10px;           /* Algo de padding para que no quede apretado */
+  border-radius: 10px;     /* Bordes suaves */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  background-color: white; /* Fondo blanco para mejor lectura */
+}
+
+    .export-buttons {
+      text-align: right;
+      margin-top: -10px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h2>Sistema de Mantenimiento de Sensores</h2>
+  <p>Supervisa, predice y exporta el estado de tus sensores</p>
+</header>
+
+<div class="container-fluid">
+  <div class="row">
+
+    <!-- Panel izquierdo: filtros y botones -->
+    <div class="col-md-3 bg-light p-4">
+      <h5 class="mb-4">🎛️ Filtros</h5>
+
+      <form method="POST" enctype="multipart/form-data" id="upload-form" class="mb-4">
+        <label for="file" class="form-label fw-semibold">Subir archivo Excel</label>
+        <input type="file" class="form-control mb-3" id="file" name="file" accept=".xlsx" required />
+        <button class="btn btn-primary w-100 mb-2" type="submit">📊 Analizar Archivo</button>
+      </form>
+
+
+
+      {% if resultados and resultados|length > 0 %}
+        <label for="estacion-select" class="form-label fw-semibold mt-4">Selecciona estación</label>
+        <select id="estacion-select" class="form-select mb-4" onchange="mostrarEstacion()">
+          <option selected disabled>Selecciona una estación</option>
+          {% for estacion in resultados %}
+            <option value="{{ estacion }}">{{ estacion }}</option>
+          {% endfor %}
+        </select>
+
+        <label for="tipo-grafico" class="form-label fw-semibold">Tipo de gráfico</label>
+        <select id="tipo-grafico" class="form-select mb-3" onchange="actualizarGrafico()">
+          <option value="absoluto" selected>Datos Faltantes (Valores Absolutos)</option>
+          <option value="porcentaje">Porcentaje de Faltantes</option>
+        </select>
+
+        <label for="tipo-estacion" class="form-label fw-semibold">Tipo de estación</label>
+        <select id="tipo-estacion" class="form-select mb-3" onchange="actualizarGrafico()">
+          <option value="todas" selected>Todas</option>
+          <option value="Pluviométrica">Pluviométrica</option>
+        </select>
+
+        <label for="filtro-estado" class="form-label fw-semibold">Estado del Sensor</label>
+        <select id="filtro-estado" class="form-select mb-3" onchange="actualizarGrafico()">
+          <option value="todos" selected>Todos</option>
+          <option value="ok">✅ Buen estado</option>
+          <option value="riesgo">⚠️ Riesgo</option>
+          <option value="critico">❌ Crítico</option>
+        </select>
+      {% endif %}
+     
+
+      <h4 class="mt-5 mb-3">📍 Mapa de Estaciones</h4>
+      <div id="map"></div>
+
+      
+    </div>
+
+    <!-- Panel derecho: resultados -->
+    <div class="col-md-9 p-4">
+       <h5 class="mt-5 mb-3">📊 Opciones de Visualización</h5>
+      <div class="d-grid gap-2">
+        <button type="button" class="btn btn-outline-secondary" onclick="mostrarSeccionGlobal('faltantes')">🗓️ Fechas con datos faltantes</button>
+        <button type="button" class="btn btn-outline-warning" onclick="mostrarSeccionGlobal('anomalias')">📈 Anomalías detectadas</button>
+        <button type="button" class="btn btn-outline-info" onclick="mostrarSeccionGlobal('reporte')">🧾 Reporte mensual resumido</button>
+      <button onclick="window.location.href='http://localhost:5001';">
+  Datos Climáticos </button>
+      </div>
+      {% if resultados and resultados|length > 0 %}
+        {% for estacion, data in resultados.items() %}
+          <!-- Tarjeta resumen (oculta al mostrar tablas) -->
+          <div class="card estacion-info mb-3" id="{{ estacion }}" style="display:none;">
+            <div class="card-body">
+              <h5 class="card-title">Estación: {{ estacion }}</h5>
+              <p>Total de registros: <strong>{{ data.total }}</strong></p>
+              <p>Datos faltantes: <strong>{{ data.faltantes }}</strong> ({{ "%.2f"|format(data.porcentaje) }}%)</p>
+              <p>Estado del sensor: 
+                {% if data.estado == 'ok' %}<span class="text-success">✅ Buen estado</span>{% endif %}
+                {% if data.estado == 'riesgo' %}<span class="text-warning">⚠️ Riesgo</span>{% endif %}
+                {% if data.estado == 'critico' %}<span class="text-danger">❌ Crítico</span>{% endif %}
+              </p>
+
+              {% if data.fechas_mantenimiento %}
+                <div class="alert alert-danger">
+                  🚨 <strong>Mantenimiento requerido:</strong>
+                  <ul>{% for fecha in data.fechas_mantenimiento %}<li>{{ fecha }}</li>{% endfor %}</ul>
+                </div>
+              {% endif %}
+
+              
+            </div>
+          </div>
+
+          <!-- Sección: Fechas con datos faltantes -->
+          <div class="seccion-estacion {{ estacion }}-faltantes mt-3" style="display:none;">
+            <h6>🗓️ Fechas con datos faltantes</h6>
+            {% if data.fechas_faltantes %}
+              <ul>
+                {% for fecha in data.fechas_faltantes %}
+                  <li>{{ fecha }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p>No hay datos faltantes.</p>
+            {% endif %}
+          </div>
+
+          <!-- Sección: Anomalías detectadas -->
+          <div class="seccion-estacion {{ estacion }}-anomalias mt-3" style="display:none;">
+            <h6>📈 Anomalías detectadas (variación % > umbral)</h6>
+            {% if data.fechas_anomalias %}
+              <table class="table table-sm table-bordered">
+                <thead><tr><th>Fecha</th><th>Variación (%)</th></tr></thead>
+                <tbody>
+                  {% for a in data.fechas_anomalias %}
+                    <tr>
+                      <td>{{ a.Fecha_str }}</td>
+                      <td>{{ '%.2f' % a.variacion }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p>No se detectaron anomalías relevantes.</p>
+            {% endif %}
+          </div>
+
+          <!-- Sección: Reporte mensual -->
+          <div class="seccion-estacion {{ estacion }}-reporte mt-3" style="display:none;">
+            <h6>🧾 Reporte mensual resumido</h6>
+            <table class="table table-sm table-bordered">
+              <thead>
+                <tr><th>Mes</th><th>Total</th><th>Faltantes</th><th>% Faltantes</th><th>Promedio</th></tr>
+              </thead>
+              <tbody>
+                {% for mes in data.reporte_mensual %}
+                  <tr>
+                    <td>{{ mes.mes.strftime('%Y-%m') }}</td>
+                    <td>{{ mes.total }}</td>
+                    <td>{{ mes.faltantes }}</td>
+                    <td>{{ '%.2f' % mes.porcentaje_faltantes }}</td>
+                    <td>{{ '%.2f' % mes.promedio if mes.promedio else 'N/A' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endfor %}
+
+        <div class="export-buttons mb-4">
+          <button class="btn btn-outline-primary" onclick="exportarExcel()">📥 Exportar Excel</button>
+        </div>
+
+        <canvas id="grafico" height="85"></canvas>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+function mostrarEstacion() {
+  const selected = document.getElementById("estacion-select").value;
+  // Oculta todas las tarjetas y secciones
+  document.querySelectorAll(".estacion-info").forEach(card => card.style.display = "none");
+  document.querySelectorAll(".seccion-estacion").forEach(div => div.style.display = "none");
+  
+  // Muestra la tarjeta resumen y la sección "faltantes" por defecto
+  const selectedCard = document.getElementById(selected);
+  if (selectedCard) selectedCard.style.display = "block";
+  const seccionInicial = document.querySelector(`.${selected}-faltantes`);
+  if (seccionInicial) seccionInicial.style.display = "block";
+}
+
+{% if resultados and resultados|length > 0 %}
+const estacionesInfo = {
+  {% for estacion, data in resultados.items() %}
+    "{{ estacion }}": {
+      total: {{ data.total }},
+      faltantes: {{ data.faltantes }},
+      porcentaje: {{ "%.2f"|format(data.porcentaje) }},
+      alerta: {{ 'true' if data.alerta else 'false' }},
+      estado: "{{ data.estado }}",
+      fechas_mantenimiento: [{% for fecha in data.fechas_mantenimiento %}"{{ fecha }}",{% endfor %}],
+      fechas_anomalias: [{% for fecha in data.fechas_anomalias %}"{{ fecha }}",{% endfor %}]
+    },
+  {% endfor %}
+};
+
+const estacionesCoords = {
+  P42: { nombre: "Antisana Ramón Huañuna", tipo: "Pluviométrica", lat: -0.6023, lon: -78.1986 },
+  P43: { nombre: "Antisana Limboasi", tipo: "Pluviométrica", lat: -0.5934, lon: -78.2082 },
+  P55: { nombre: "Antisana Diguchi", tipo: "Pluviométrica", lat: -0.5731, lon: -78.2628 }
+};
+
+let grafico;
+
+function filtrarEstaciones(tipoEstacion, estadoSensor) {
+  return Object.keys(estacionesInfo).filter(e => {
+    const cumpleTipo = tipoEstacion === "todas" || estacionesCoords[e]?.tipo === tipoEstacion;
+    const cumpleEstado = estadoSensor === "todos" || estacionesInfo[e].estado === estadoSensor;
+    return cumpleTipo && cumpleEstado;
+  });
+}
+
+function actualizarGrafico() {
+  const tipoGrafico = document.getElementById("tipo-grafico").value;
+  const tipoEstacion = document.getElementById("tipo-estacion").value;
+  const estadoSensor = document.getElementById("filtro-estado").value;
+
+  const estacionesFiltradas = filtrarEstaciones(tipoEstacion, estadoSensor);
+  const etiquetas = estacionesFiltradas;
+  const datos = etiquetas.map(e => tipoGrafico === "absoluto" ? estacionesInfo[e].faltantes : estacionesInfo[e].porcentaje);
+
+  const label = tipoGrafico === "absoluto" ? "Datos Faltantes" : "Porcentaje de Faltantes (%)";
+  const backgroundColors = etiquetas.map(() => `hsl(${Math.random()*360}, 70%, 60%)`);
+
+  if (grafico) grafico.destroy();
+
+  const ctx = document.getElementById('grafico').getContext('2d');
+  grafico = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: etiquetas,
+      datasets: [{ label, data: datos, backgroundColor: backgroundColors }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }},
+      scales: {
+        y: { beginAtZero: true, max: tipoGrafico === "porcentaje" ? 100 : undefined },
+        x: { title: { display: true, text: "Estaciones" } }
+      }
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  const selectEstacion = document.getElementById("estacion-select");
+  if (selectEstacion && selectEstacion.options.length > 1) {
+    selectEstacion.selectedIndex = 1;
+    mostrarEstacion();
+  }
+  actualizarGrafico();
+
+  const map = L.map('map').setView([-0.59, -78.22], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  Object.keys(estacionesCoords).forEach(key => {
+    if (!(key in estacionesInfo)) return;
+    const est = estacionesCoords[key];
+    const info = estacionesInfo[key];
+    let popupHTML = `<strong>${key}</strong><br>${est.nombre} (${est.tipo})<br>Faltantes: ${info.faltantes}<br>`;
+    popupHTML += `Estado: ${info.estado}<br>`;
+    if (info.alerta) popupHTML += `🚨 Mantenimiento: ${info.fechas_mantenimiento.join(", ")}`;
+    else popupHTML += `✅ Sin alertas`;
+    L.marker([est.lat, est.lon]).addTo(map).bindPopup(popupHTML);
+  });
+});
+
+function exportarExcel() {
+  const wb = XLSX.utils.book_new();
+  const data = [
+    ["Estación", "Total", "Faltantes", "Porcentaje", "Estado", "Fechas de Mantenimiento", "Fechas de Anomalías"],
+    ...Object.entries(estacionesInfo).map(([key, val]) => [
+      key, val.total, val.faltantes, val.porcentaje, val.estado, val.fechas_mantenimiento.join(", "), val.fechas_anomalias.join(", ")
+    ])
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  XLSX.utils.book_append_sheet(wb, ws, "Reporte");
+  XLSX.writeFile(wb, "reporte_mantenimiento.xlsx");
+}
+{% endif %}
+
+function mostrarSeccionGlobal(seccion) {
+  // Oculta todas las secciones detalladas
+  document.querySelectorAll('.seccion-estacion').forEach(div => div.style.display = 'none');
+  // Oculta todas las tarjetas resumen para que solo se muestre la tabla
+  document.querySelectorAll('.estacion-info').forEach(div => div.style.display = 'none');
+
+  const seleccionada = document.getElementById("estacion-select").value;
+  if (!seleccionada) return;
+
+  // Muestra solo la sección seleccionada para la estación
+  const target = document.querySelector(`.${seleccionada}-${seccion}`);
+  if (target) target.style.display = 'block';
+}
+
+</script>
+
+<!-- Agrega esto donde quieras que aparezca el botón -->
+<div style="display: flex;">
+  <!-- Contenido principal -->
+  <div style="flex: 1;">
+    <!-- ...otros elementos... -->
+    <button onclick="cargarDatosClimaticos()">Datos Climáticos</button>
+  </div>
+  <!-- Panel derecho para la tabla -->
+  <div id="panel-derecho" style="flex: 1; padding-left: 20px;">
+    <!-- Aquí aparecerá la tabla -->
+  </div>
+</div>
+
+<script>
+function cargarDatosClimaticos() {
+  fetch('http://localhost:5001/datos-climaticos') // Ajusta la ruta según tu API
+    .then(response => response.text())
+    .then(html => {
+      document.getElementById('panel-derecho').innerHTML = html;
+    })
+    .catch(error => {
+      document.getElementById('panel-derecho').innerHTML = 'Error al cargar los datos.';
+    });
+}
+</script>
+
+</body>
+</html>
