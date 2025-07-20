@@ -33,19 +33,26 @@
       margin-bottom: 10px;
     }
     .estacion-info, .seccion-estacion {
-  max-height: 250px;       /* Altura máxima menor para compactar */
-  overflow-y: auto;        /* Scroll vertical si excede */
-  margin-bottom: 15px;     /* Menor espacio debajo */
-  padding: 10px;           /* Algo de padding para que no quede apretado */
-  border-radius: 10px;     /* Bordes suaves */
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-  background-color: white; /* Fondo blanco para mejor lectura */
-}
+      max-height: 250px;          /* Altura máxima menor para compactar */
+      overflow-y: auto;           /* Scroll vertical si excede */
+      margin-bottom: 15px;       /* Menor espacio debajo */
+      padding: 10px;              /* Algo de padding para que no quede apretado */
+      border-radius: 10px;        /* Bordes suaves */
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      background-color: white; /* Fondo blanco para mejor lectura */
+    }
 
     .export-buttons {
       text-align: right;
       margin-top: -10px;
       margin-bottom: 20px;
+    }
+    /* Estilos adicionales para posicionar el botón si lo quieres abajo a la izquierda */
+    .footer-button-container {
+      position: fixed; /* Lo fija en la pantalla */
+      bottom: 20px;    /* 20px desde la parte inferior */
+      left: 20px;      /* 20px desde la parte izquierda */
+      z-index: 1000;   /* Asegura que esté por encima de otros elementos */
     }
   </style>
 </head>
@@ -53,7 +60,7 @@
 
 <header>
   <h2>Sistema de Mantenimiento de Sensores</h2>
-  <p>Supervisa, monitorea y exporta el estado de tus sensores</p>
+  <p>Supervisa, predice y exporta el estado de tus sensores</p>
 </header>
 
 <div class="container-fluid">
@@ -68,8 +75,6 @@
         <input type="file" class="form-control mb-3" id="file" name="file" accept=".xlsx" required />
         <button class="btn btn-primary w-100 mb-2" type="submit">📊 Analizar Archivo</button>
       </form>
-
-
 
       {% if resultados and resultados|length > 0 %}
         <label for="estacion-select" class="form-label fw-semibold mt-4">Selecciona estación</label>
@@ -100,12 +105,9 @@
           <option value="critico">❌ Crítico</option>
         </select>
       {% endif %}
-     
-
+      
       <h4 class="mt-5 mb-3">📍 Mapa de Estaciones</h4>
       <div id="map"></div>
-
-      
     </div>
 
     <!-- Panel derecho: resultados -->
@@ -115,8 +117,6 @@
         <button type="button" class="btn btn-outline-secondary" onclick="mostrarSeccionGlobal('faltantes')">🗓️ Fechas con datos faltantes</button>
         <button type="button" class="btn btn-outline-warning" onclick="mostrarSeccionGlobal('anomalias')">📈 Anomalías detectadas</button>
         <button type="button" class="btn btn-outline-info" onclick="mostrarSeccionGlobal('reporte')">🧾 Reporte mensual resumido</button>
-      <button onclick="window.location.href='http://localhost:5001';">
-  Datos Climáticos </button>
       </div>
       {% if resultados and resultados|length > 0 %}
         {% for estacion, data in resultados.items() %}
@@ -132,7 +132,7 @@
                 {% if data.estado == 'critico' %}<span class="text-danger">❌ Crítico</span>{% endif %}
               </p>
 
-                            {% if data.recomendaciones %}
+              {% if data.recomendaciones %}
                 <div class="alert alert-info mt-3">
                   <strong>🔧 Recomendaciones:</strong>
                   <ul>
@@ -142,8 +142,6 @@
                   </ul>
                 </div>
               {% endif %}
-
-                            
             </div>
           </div>
 
@@ -350,31 +348,13 @@ function mostrarSeccionGlobal(seccion) {
 
 </script>
 
-<!-- Agrega esto donde quieras que aparezca el botón -->
-<div style="display: flex;">
-  <!-- Contenido principal -->
-  <div style="flex: 1;">
-    <!-- ...otros elementos... -->
-    <button onclick="cargarDatosClimaticos()">Datos Climáticos</button>
-  </div>
-  <!-- Panel derecho para la tabla -->
-  <div id="panel-derecho" style="flex: 1; padding-left: 20px;">
-    <!-- Aquí aparecerá la tabla -->
-  </div>
+<!-- Botón "Datos Climáticos" posicionado abajo a la izquierda -->
+<div class="footer-button-container">
+    <!-- El `href` ahora apunta a una ruta dentro de la misma aplicación -->
+    <a href="/datos-climaticos" class="btn btn-dark btn-lg shadow-lg">
+        Datos Climáticos
+    </a>
 </div>
-
-<script>
-function cargarDatosClimaticos() {
-  fetch('http://localhost:5001/datos-climaticos') // Ajusta la ruta según tu API
-    .then(response => response.text())
-    .then(html => {
-      document.getElementById('panel-derecho').innerHTML = html;
-    })
-    .catch(error => {
-      document.getElementById('panel-derecho').innerHTML = 'Error al cargar los datos.';
-    });
-}
-</script>
 
 </body>
 </html>
