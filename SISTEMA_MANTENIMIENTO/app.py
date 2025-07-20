@@ -24,17 +24,18 @@ def preparar_serie_faltantes(df, estacion):
     proporcion.columns = ['ds', 'y']
     return proporcion
 
-def predecir_faltantes(serie, umbral=0.01, meses_a_predecir=12):
-    if len(serie) < 3:
-        return []
-    model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False)
-    model.fit(serie)
-    future = model.make_future_dataframe(periods=meses_a_predecir, freq='M')
-    forecast = model.predict(future)
-    hoy = pd.to_datetime(datetime.today().date())
-    predicciones_futuras = forecast[forecast['ds'] > hoy]
-    fechas_alerta = predicciones_futuras[predicciones_futuras['yhat'] > umbral]['ds'].dt.strftime('%Y-%m-%d').tolist()
-    return fechas_alerta
+
+#def predecir_faltantes(serie, umbral=0.01, meses_a_predecir=12)
+   # if len(serie) < 3:
+       # return []
+   # model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False)
+   # model.fit(serie)
+    #future = model.make_future_dataframe(periods=meses_a_predecir, freq='M')
+    #forecast = model.predict(future)
+    #hoy = pd.to_datetime(datetime.today().date())
+    #predicciones_futuras = forecast[forecast['ds'] > hoy]
+    #fechas_alerta = predicciones_futuras[predicciones_futuras['yhat'] > umbral]['ds'].dt.strftime('%Y-%m-%d').tolist()
+    #return fechas_alerta
 
 def detectar_anomalias_y_tendencias(df, estacion, umbral_porcentaje=50):
     df_tmp = df[['Fecha', estacion]].dropna().copy()
@@ -55,6 +56,33 @@ def generar_reporte_mensual(df, estacion):
     resumen['porcentaje_faltantes'] = (resumen['faltantes'] / resumen['total']) * 100
     return resumen
 
+def generar_recomendaciones(estado):
+    if estado == 'critico':
+        return [
+            "✅ Realizar inspección urgente del sensor en campo.",
+            "🔌 Verificar energía, conectividad y funcionamiento de componentes.",
+            "🔄 Reemplazar sensor si muestra daños irreversibles.",
+            "📊 Comparar datos con estaciones cercanas para validación.",
+            "🛠️ Programar mantenimiento correctivo inmediato."
+        ]
+    elif estado == 'riesgo':
+        return [
+            "🧽 Realizar limpieza y mantenimiento preventivo.",
+            "📡 Verificar calibración y conectividad.",
+            "📉 Analizar eventos recientes de lluvia para descartar fallos.",
+            "🔍 Monitorear variaciones bruscas de datos.",
+            "🔄 Considerar actualización de firmware."
+        ]
+    elif estado == 'ok':
+        return [
+            "✅ Continuar con mantenimiento preventivo cada 3-6 meses.",
+            "📂 Realizar respaldo regular de datos.",
+            "📝 Mantener bitácora de eventos y mantenimientos.",
+            "🧑‍🏫 Capacitar al personal para conservación y análisis.",
+            "🛰️ Revisar conectividad y batería periódicamente."
+        ]
+    return []
+
 
 # Agrega al análisis principal:
 def analizar_excel(filepath):
@@ -69,27 +97,28 @@ def analizar_excel(filepath):
             porcentaje = (datos_faltantes / total) * 100
             fechas_faltantes = df[df[estacion].isna()]['Fecha'].dt.strftime('%Y-%m-%d').tolist()
             serie = preparar_serie_faltantes(df, estacion)
-            fechas_mantenimiento_predictivas = predecir_faltantes(serie, umbral=0.01)
+            #fechas_mantenimiento_predictivas = predecir_faltantes(serie, umbral=0.01)
             anomalias = detectar_anomalias_y_tendencias(df, estacion)
             estado = 'ok'
-            if porcentaje > 30 or len(fechas_mantenimiento_predictivas) > 0:
+            if porcentaje > 30  > 0:
                 estado = 'critico'
             elif porcentaje > 20 or len(anomalias) > 0:
                 estado = 'riesgo'
 
-            if porcentaje > 30 and len(fechas_mantenimiento_predictivas) == 0:
-                fechas_mantenimiento_predictivas = [(datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')]
+           # if porcentaje > 30 and len(fechas_mantenimiento_predictivas) == 0:
+            #    fechas_mantenimiento_predictivas = [(datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')]
 
             resultados[estacion] = {
                 'total': total,
                 'faltantes': datos_faltantes,
                 'porcentaje': porcentaje,
                 'fechas_faltantes': fechas_faltantes,
-                'fechas_mantenimiento': fechas_mantenimiento_predictivas,
+                #'fechas_mantenimiento': fechas_mantenimiento_predictivas,
                 'fechas_anomalias': anomalias,
                 'estado': estado,
                 'alerta': estado in ['riesgo', 'critico'],
-                'reporte_mensual': generar_reporte_mensual(df, estacion).to_dict(orient='records')
+                'reporte_mensual': generar_reporte_mensual(df, estacion).to_dict(orient='records'),
+                'recomendaciones': generar_recomendaciones(estado)
             }
     return resultados
 

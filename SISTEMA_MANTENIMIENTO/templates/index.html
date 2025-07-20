@@ -53,7 +53,7 @@
 
 <header>
   <h2>Sistema de Mantenimiento de Sensores</h2>
-  <p>Supervisa, predice y exporta el estado de tus sensores</p>
+  <p>Supervisa, monitorea y exporta el estado de tus sensores</p>
 </header>
 
 <div class="container-fluid">
@@ -132,14 +132,18 @@
                 {% if data.estado == 'critico' %}<span class="text-danger">❌ Crítico</span>{% endif %}
               </p>
 
-              {% if data.fechas_mantenimiento %}
-                <div class="alert alert-danger">
-                  🚨 <strong>Mantenimiento requerido:</strong>
-                  <ul>{% for fecha in data.fechas_mantenimiento %}<li>{{ fecha }}</li>{% endfor %}</ul>
+                            {% if data.recomendaciones %}
+                <div class="alert alert-info mt-3">
+                  <strong>🔧 Recomendaciones:</strong>
+                  <ul>
+                    {% for r in data.recomendaciones %}
+                      <li>{{ r }}</li>
+                    {% endfor %}
+                  </ul>
                 </div>
               {% endif %}
 
-              
+                            
             </div>
           </div>
 
