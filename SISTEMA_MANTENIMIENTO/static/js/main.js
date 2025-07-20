@@ -1,4 +1,3 @@
-
 function actualizarGrafico() {
   const tipo = document.getElementById("tipo-grafico").value;
   console.log("Actualizar gráfico a tipo:", tipo);
