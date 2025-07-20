@@ -1,7 +1,7 @@
 import pandas as pd
 import requests
 from datetime import datetime
-from flask import Flask, render_template
+from flask import Flask, render_template, send_file, request
 from tqdm import tqdm
 import os
 
@@ -62,10 +62,28 @@ def index():
     df_clima = pd.DataFrame(climas)
     resultado = pd.merge(faltantes_total, df_clima, on=['Fecha', 'Sensor'])
 
+    # Guardar resultado en sesión para descarga
+    # Guardar archivo Excel con dos hojas: original y completados
+    with pd.ExcelWriter('uploads/faltantes_resultado.xlsx') as writer:
+        # Hoja 1: datos originales (como se sube el archivo)
+        df.to_excel(writer, sheet_name='Original', index=False)
+        # Hoja 2: datos completados (faltantes llenados con clima)
+        resultado.to_excel(writer, sheet_name='Completados', index=False)
+
     # Convertimos el DataFrame a una lista de diccionarios para el template
     datos = resultado.to_dict(orient='records')
 
     return render_template('resultado.html', datos=datos)
+
+
+# Ruta para descargar el archivo Excel de faltantes
+@app.route('/descargar_faltantes')
+def descargar_faltantes():
+    file_path = 'uploads/faltantes_resultado.xlsx'
+    if os.path.exists(file_path):
+        return send_file(file_path, as_attachment=True)
+    else:
+        return 'Archivo no encontrado', 404
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
