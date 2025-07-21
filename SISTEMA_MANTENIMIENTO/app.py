@@ -293,8 +293,11 @@ def descargar_faltantes():
     else:
         return 'Archivo no encontrado. Por favor, genera el reporte primero.', 404
 
-if __name__ == '__main__':
-    # En desarrollo, puedes usar un puerto específico.
-    # En Render, la variable de entorno $PORT será usada por Gunicorn.
-    app.run(debug=True, port=5000)
+
+import os
+
+port = int(os.environ.get("PORT", 5000))
+app.run(host="0.0.0.0", port=port, debug=True)
+
+
 
