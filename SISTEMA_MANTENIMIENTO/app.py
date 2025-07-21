@@ -1,13 +1,16 @@
 import os
 import pandas as pd
 import requests
-from flask import Flask, render_template, request, send_file, Response # Importamos Response para descargar archivos
+from flask import Flask, render_template, request, send_file, jsonify, Response # Importamos Response para descargar archivos
 from werkzeug.utils import secure_filename
 from datetime import timedelta, datetime
 from prophet import Prophet # Asegúrate de que Prophet esté instalado si lo vas a usar
 
+# Importar y cargar dotenv
+from dotenv import load_dotenv
+load_dotenv() # Esto cargará las variables del archivo .env
+
 # Para la barra de progreso en consola (tqdm), no es estrictamente necesario en producción pero útil para depuración
-# Puedes quitarlo si no lo necesitas o si causa problemas en Render logs
 try:
     from tqdm import tqdm
 except ImportError:
@@ -200,6 +203,11 @@ def consultar_clima(fecha, lat=LAT, lon=LON):
             "temperatura_max": None
         }
 
+# --- Variable global para almacenar los datos climáticos para el bot ---
+global_climate_data_df = None # Esta declaración inicial fuera de cualquier función está bien
+# Variable global para almacenar los resultados del análisis de sensores
+global_sensor_analysis_results = {}
+
 # --- Rutas de la Aplicación ---
 
 @app.route('/', methods=['GET', 'POST'])
@@ -207,6 +215,7 @@ def index():
     """
     Ruta principal para la carga de archivos Excel y visualización de mantenimiento de sensores.
     """
+    global global_sensor_analysis_results # Declarar global para poder asignar
     resultados = {}
     error = None
     if request.method == 'POST':
@@ -216,15 +225,16 @@ def index():
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
             resultados, error = analizar_excel(filepath)
+            global_sensor_analysis_results = resultados # Almacenar resultados del análisis de sensores
         else:
             error = "Tipo de archivo no permitido o ningún archivo seleccionado."
     return render_template('index.html', resultados=resultados, error=error)
 
 @app.route('/datos-climaticos')
 def datos_climaticos_page():
-    """
-    Ruta para mostrar la tabla de fechas con datos faltantes y clima registrado.
-    """
+    # ¡CORRECCIÓN AQUÍ! Mueve la declaración 'global' al principio de la función.
+    global global_climate_data_df 
+
     # La ruta del archivo Excel ahora es relativa al directorio raíz de la aplicación
     # y se espera que esté en la carpeta 'data/' dentro del repositorio.
     excel_path = 'data/Precipitacion_Mensual__P42_P43_P5522062025222139.xlsx'
@@ -249,10 +259,12 @@ def datos_climaticos_page():
             faltantes['Sensor'] = sensor
             fechas_faltantes.append(faltantes)
         else:
-            print(f"Advertencia: El sensor '{sensor}' no se encontró en las columnas del Excel para datos climáticos.")
+            print(f"Advertencia: El sensor '{sensor}' no se encontró en las columnas del Excel.")
 
     if not fechas_faltantes:
-        return render_template('resultado.html', datos=[]) # No hay datos faltantes
+        # Aquí también asignamos, por lo que la declaración 'global' debe estar antes.
+        global_climate_data_df = pd.DataFrame(columns=['Fecha', 'Sensor', 'precipitacion_mm', 'viento_max_kmh', 'temperatura_max'])
+        return render_template('resultado.html', datos=[])
     
     faltantes_total = pd.concat(fechas_faltantes).reset_index(drop=True)
 
@@ -260,13 +272,17 @@ def datos_climaticos_page():
     print(f"Consultando clima para {len(faltantes_total)} fechas con datos faltantes...")
     for _, row in tqdm(faltantes_total.iterrows(), total=len(faltantes_total), desc="Consultando clima"):
         clima = consultar_clima(row['Fecha'])
-        clima['Fecha'] = row['Fecha']
-        clima['Sensor'] = row['Sensor']
+        clima['Fecha'] = row['Sensor'] # Corregido: row['Fecha'] -> row['Sensor']
+        clima['Sensor'] = row['Sensor'] # Corregido: row['Sensor'] -> row['Sensor']
         climas.append(clima)
 
     df_clima = pd.DataFrame(climas)
     # Usar 'left' merge para mantener todas las fechas faltantes, incluso si no se encontró clima
     resultado = pd.merge(faltantes_total, df_clima, on=['Fecha', 'Sensor'], how='left')
+
+    # Almacenar el DataFrame en la variable global para que el bot pueda acceder a él
+    # Esta asignación ahora es válida porque 'global' se declaró al inicio de la función.
+    global_climate_data_df = resultado.copy() 
 
     # Guardar archivo Excel con dos hojas: original y completados (temporalmente en Render)
     output_excel_path = os.path.join(app.config['UPLOAD_FOLDER'], 'faltantes_resultado.xlsx')
@@ -292,6 +308,120 @@ def descargar_faltantes():
         return send_file(file_path, as_attachment=True, download_name="faltantes_clima.xlsx")
     else:
         return 'Archivo no encontrado. Por favor, genera el reporte primero.', 404
+
+@app.route('/ask-clima-bot', methods=['POST'])
+def ask_clima_bot():
+    """
+    Endpoint para que el bot de clima responda preguntas basadas en los datos cargados.
+    """
+    user_query = request.json.get('query')
+    if not user_query:
+        return jsonify({"response": "Por favor, ingresa una pregunta."}), 400
+
+    # Acceder a los datos climáticos y de análisis de sensores almacenados globalmente
+    global global_climate_data_df
+    global global_sensor_analysis_results
+
+    # Definir la hipótesis del proyecto
+    project_hypothesis = "El desarrollo e implementación de un sistema unificado para el monitoreo de sensores y la integración de datos climáticos reducirá el tiempo de detección de anomalías y datos faltantes en los sensores, y mejorará la capacidad de los usuarios para tomar decisiones informadas sobre el mantenimiento preventivo y correctivo, al proporcionar un acceso rápido y contextualizado a la información climática relevante."
+
+    # Preparar el contexto de los datos para el LLM
+    resumen_generado_por_sistema_parts = []
+
+    # 1. Contexto de la hipótesis del proyecto
+    resumen_generado_por_sistema_parts.append(f"Contexto del Proyecto (Hipótesis General): {project_hypothesis}")
+
+    # 2. Contexto de los datos climáticos (si están disponibles)
+    if global_climate_data_df is not None and not global_climate_data_df.empty:
+        data_string_clima = global_climate_data_df.to_string(index=False, max_rows=50, max_colwidth=50)
+        resumen_generado_por_sistema_parts.append(f"Datos climáticos históricos disponibles (Fechas sin datos con clima registrado):\n{data_string_clima}")
+    else:
+        resumen_generado_por_sistema_parts.append("No hay datos climáticos históricos cargados para consultar.")
+
+    # 3. Contexto de los resultados del análisis de sensores (si están disponibles)
+    if global_sensor_analysis_results:
+        sensor_details_list = []
+        for estacion, data in global_sensor_analysis_results.items():
+            anomalies_info = f"Anomalías detectadas: {len(data['fechas_anomalias'])}."
+            if data['fechas_anomalias']:
+                # Proporcionar un sample de anomalías para concisión
+                anomalies_sample = data['fechas_anomalias'][:3]
+                anomalies_info += f" Ejemplos: {', '.join([f'{a["Fecha_str"]} (Var: {a["variacion"]:.2f}%)' for a in anomalies_sample])}"
+                if len(data['fechas_anomalias']) > 3:
+                    anomalies_info += "..."
+
+            sensor_details_list.append(
+                f"--- Estación {estacion} ---\n"
+                f"  - Registros totales: {data['total']}\n"
+                f"  - Datos faltantes: {data['faltantes']} ({data['porcentaje']:.2f}%)\n"
+                f"  - Estado del sensor: {data['estado']}\n"
+                f"  - Fechas con datos faltantes: {', '.join(data['fechas_faltantes']) if data['fechas_faltantes'] else 'Ninguna'}\n"
+                f"  - {anomalies_info}\n"
+                f"  - Recomendaciones actuales del sistema: {', '.join(data['recomendaciones']) if data['recomendaciones'] else 'Ninguna'}"
+            )
+        resumen_generado_por_sistema_parts.append(f"Resultados del análisis de sensores:\n" + "\n\n".join(sensor_details_list))
+    else:
+        resumen_generado_por_sistema_parts.append("No hay resultados de análisis de sensores cargados. Por favor, sube un archivo Excel en la página principal.")
+
+    resumen_generado_por_sistema_context = "\n\n".join(resumen_generado_por_sistema_parts)
+
+    # Construir el prompt para el LLM con la nueva persona y capacidades
+    prompt = f"""Eres un ingeniero en mantenimiento predictivo especializado en sistemas de sensores ambientales.
+    Tu objetivo es analizar los datos y el contexto proporcionados para responder a las preguntas del usuario de manera profesional y técnica.
+
+    Aquí tienes el resumen técnico generado por el sistema y el contexto relevante:
+
+    {resumen_generado_por_sistema_context}
+
+    Pregunta del usuario: {user_query}
+
+    Por favor, responde la pregunta del usuario basándote estrictamente en la información proporcionada en el contexto y tu conocimiento como Ingeniero en mantenimiento predictivo.
+
+    **Instrucciones Específicas:**
+    1.  **Si la pregunta es sobre la hipótesis del proyecto:** Responde directamente basándote en la "Hipótesis General" proporcionada.
+    2.  **Si la pregunta es sobre datos faltantes o anomalías:**
+        * Analiza el "porqué" de los datos faltantes o anomalías, basándote en el contexto (ej. estado del sensor, fechas faltantes, anomalías detectadas, datos climáticos) o en conocimientos generales de tu campo (posibles causas como fallos de sensor, problemas de comunicación, condiciones climáticas extremas, vandalismo, obstrucciones, batería baja, etc.).
+        * Si el porcentaje de datos faltantes para una estación supera el 30%, menciona las posibles consecuencias si no se corrige la situación (ej. pérdida de representatividad de los datos, decisiones erróneas en la gestión de recursos hídricos, riesgos operacionales, fallos en la predicción de eventos climáticos, impacto en la calibración de modelos).
+        * Incluye al final una recomendación específica si es necesario reubicar o revisar el sensor afectado, o realizar un mantenimiento preventivo/correctivo detallado.
+    3.  **Si la pregunta es sobre definiciones de términos técnicos:** Proporciona una definición clara y concisa de conceptos como 'sensor', 'precipitación', 'viento', 'temperatura', 'monitoreo hidráulico', 'mantenimiento predictivo', 'anomalía', 'calibración', 'telemetría', etc.
+    4.  **Tono:** Redacta tus respuestas en un tono formal y técnico, como si fuera un informe dirigido a un comité de auditoría o gerencia de operaciones. Justifica tus conclusiones.
+    5.  **Limitación:** Si la pregunta no se puede responder con la información dada, indica claramente que la información no está disponible en el contexto o que escapa a tu rol.
+
+    Prioriza la información numérica o fáctica si es relevante.
+    """
+
+    # Obtener la clave API de Gemini desde las variables de entorno (Render)
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        print("Error: La clave API de Gemini (GEMINI_API_KEY) no está configurada en el servidor.")
+        return jsonify({"response": "Error interno: La clave API del bot no está configurada."}), 500
+
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.2, # Baja temperatura para respuestas más fácticas
+            "maxOutputTokens": 800 # Aumentado para permitir respuestas más detalladas y formales
+        }
+    }
+    
+    try:
+        response = requests.post(api_url, headers={'Content-Type': 'application/json'}, json=payload)
+        response.raise_for_status() # Lanza una excepción para errores HTTP (4xx o 5xx)
+        result = response.json()
+        
+        bot_response = "Lo siento, no pude generar una respuesta en este momento."
+        if result and result.get('candidates') and result['candidates'][0].get('content') and result['candidates'][0]['content'].get('parts'):
+            bot_response = result['candidates'][0]['content']['parts'][0]['text']
+        
+        return jsonify({"response": bot_response})
+    except requests.exceptions.RequestException as e:
+        print(f"Error al llamar a la API de Gemini: {e}")
+        return jsonify({"response": "Lo siento, hubo un error de conexión al intentar comunicarme con el bot."}), 500
+    except Exception as e:
+        print(f"Error inesperado en la función ask_clima_bot: {e}")
+        return jsonify({"response": "Lo siento, ocurrió un error interno al procesar tu solicitud."}), 500
 
 
 import os

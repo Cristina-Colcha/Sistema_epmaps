@@ -47,12 +47,127 @@
       margin-top: -10px;
       margin-bottom: 20px;
     }
-    /* Estilos adicionales para posicionar el botón si lo quieres abajo a la izquierda */
+    /* Estilos para el botón de navegación "Datos Climáticos" */
     .footer-button-container {
       position: fixed; /* Lo fija en la pantalla */
       bottom: 20px;    /* 20px desde la parte inferior */
       left: 20px;      /* 20px desde la parte izquierda */
       z-index: 1000;   /* Asegura que esté por encima de otros elementos */
+    }
+
+    /* Estilos para el Chatbot flotante */
+    .chat-bubble {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #2f25eb;
+      color: white;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      z-index: 1001; /* Mayor z-index que el botón de navegación */
+      transition: transform 0.3s ease;
+    }
+    .chat-bubble:hover {
+      transform: scale(1.05);
+    }
+    .chat-window {
+      position: fixed;
+      bottom: 90px; /* Arriba de la burbuja del chat */
+      right: 20px;
+      width: 350px;
+      height: 450px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+      display: flex;
+      flex-direction: column;
+      z-index: 1002;
+      overflow: hidden;
+      transform: translateY(100%) scale(0.8); /* Inicia oculto y pequeño */
+      opacity: 0;
+      transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+      pointer-events: none; /* No interactuable cuando está oculto */
+    }
+    .chat-window.active {
+      transform: translateY(0) scale(1); /* Se muestra y crece */
+      opacity: 1;
+      pointer-events: auto; /* Interactuable cuando está activo */
+    }
+    .chat-header {
+      background: linear-gradient(to right, #384a64, #2f25eb);
+      color: white;
+      padding: 10px 15px;
+      border-radius: 12px 12px 0 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+    .chat-header .close-btn {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 0 5px;
+    }
+    .chat-messages {
+      flex-grow: 1;
+      overflow-y: auto;
+      padding: 15px;
+      background-color: #f8f9fa;
+      border-bottom: 1px solid #eee;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 8px 12px;
+      border-radius: 15px;
+      max-width: 80%;
+      word-wrap: break-word; /* Asegura que el texto largo se ajuste */
+    }
+    .message.user {
+      background-color: #e0f7fa;
+      margin-left: auto;
+      text-align: right;
+    }
+    .message.bot {
+      background-color: #f0f0f0;
+      text-align: left;
+    }
+    .chat-input-area {
+      padding: 10px 15px;
+      display: flex;
+      gap: 10px;
+      border-top: 1px solid #eee;
+    }
+    .chat-input-area input {
+      flex-grow: 1;
+      border-radius: 20px;
+      padding: 8px 15px;
+      border: 1px solid #ddd;
+    }
+    .chat-input-area button {
+      border-radius: 20px;
+      padding: 8px 15px;
+      background-color: #2f25eb;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .loading-indicator {
+      text-align: center;
+      margin-top: 5px;
+      font-style: italic;
+      color: #6c757d;
+      font-size: 0.9rem;
     }
   </style>
 </head>
@@ -60,7 +175,7 @@
 
 <header>
   <h2>Sistema de Mantenimiento de Sensores</h2>
-  <p>Supervisa, predice y exporta el estado de tus sensores</p>
+  <p>Supervisa, monitorea y exporta el estado de tus sensores</p>
 </header>
 
 <div class="container-fluid">
@@ -117,6 +232,11 @@
         <button type="button" class="btn btn-outline-secondary" onclick="mostrarSeccionGlobal('faltantes')">🗓️ Fechas con datos faltantes</button>
         <button type="button" class="btn btn-outline-warning" onclick="mostrarSeccionGlobal('anomalias')">📈 Anomalías detectadas</button>
         <button type="button" class="btn btn-outline-info" onclick="mostrarSeccionGlobal('reporte')">🧾 Reporte mensual resumido</button>
+        
+        <!-- Botón de navegación a Datos Climáticos -->
+        <a href="/datos-climaticos" class="btn btn-dark btn-lg shadow-lg">
+            Datos Climáticos
+        </a>
       </div>
       {% if resultados and resultados|length > 0 %}
         {% for estacion, data in resultados.items() %}
@@ -348,13 +468,101 @@ function mostrarSeccionGlobal(seccion) {
 
 </script>
 
-<!-- Botón "Datos Climáticos" posicionado abajo a la izquierda -->
+<!-- Botón de navegación a Datos Climáticos -->
 <div class="footer-button-container">
-    <!-- El `href` ahora apunta a una ruta dentro de la misma aplicación -->
     <a href="/datos-climaticos" class="btn btn-dark btn-lg shadow-lg">
         Datos Climáticos
     </a>
 </div>
+
+<!-- Chatbot flotante -->
+<div class="chat-bubble" id="chat-bubble">💬</div>
+
+<div class="chat-window" id="chat-window">
+  <div class="chat-header">
+    <span>🤖 Asistente de Mantenimiento</span>
+    <button class="close-btn" id="close-chat-btn">&times;</button>
+  </div>
+  <div class="chat-messages" id="chat-messages">
+    <div class="message bot">Hola, soy tu asistente de mantenimiento. Pregúntame sobre el estado de los sensores, datos faltantes o la hipótesis del proyecto.</div>
+  </div>
+  <div class="chat-input-area">
+    <input type="text" id="user-input" placeholder="Escribe tu pregunta...">
+    <button id="send-chat-btn">Enviar</button>
+  </div>
+  <div class="loading-indicator" id="loading-indicator" style="display: none;">Cargando respuesta...</div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const chatBubble = document.getElementById('chat-bubble');
+    const chatWindow = document.getElementById('chat-window');
+    const closeChatBtn = document.getElementById('close-chat-btn');
+    const userInput = document.getElementById('user-input');
+    const sendChatBtn = document.getElementById('send-chat-btn');
+    const chatMessages = document.getElementById('chat-messages');
+    const loadingIndicator = document.getElementById('loading-indicator');
+
+    function toggleChat() {
+      chatWindow.classList.toggle('active');
+      if (chatWindow.classList.contains('active')) {
+        userInput.focus(); // Enfocar el input al abrir el chat
+      }
+    }
+
+    chatBubble.addEventListener('click', toggleChat);
+    closeChatBtn.addEventListener('click', toggleChat);
+
+    function addMessage(sender, text) {
+      const messageDiv = document.createElement('div');
+      messageDiv.classList.add('message', sender);
+      messageDiv.textContent = text;
+      chatMessages.appendChild(messageDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll al final
+    }
+
+    async function sendMessage() {
+      const query = userInput.value.trim();
+      if (query === '') return;
+
+      addMessage('user', query);
+      userInput.value = ''; // Limpiar input
+
+      loadingIndicator.style.display = 'block'; // Mostrar indicador de carga
+
+      try {
+        const response = await fetch('/ask-clima-bot', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query: query })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.response || 'Error al conectar con el bot.');
+        }
+
+        const data = await response.json();
+        addMessage('bot', data.response);
+
+      } catch (error) {
+        console.error('Error al enviar mensaje al bot:', error);
+        addMessage('bot', 'Lo siento, no pude obtener una respuesta. Hubo un error: ' + error.message);
+      } finally {
+        loadingIndicator.style.display = 'none'; // Ocultar indicador de carga
+      }
+    }
+
+    sendChatBtn.addEventListener('click', sendMessage);
+    userInput.addEventListener('keypress', function(event) {
+      if (event.key === 'Enter') {
+        sendMessage();
+      }
+    });
+  });
+</script>
 
 </body>
 </html>
