@@ -1,28 +1,23 @@
 import os
 import pandas as pd
 import requests
-from flask import Flask, render_template, request, send_file, jsonify, Response # Importamos Response para descargar archivos
+from flask import Flask, render_template, request, send_file, jsonify, Response 
 from werkzeug.utils import secure_filename
 from datetime import timedelta, datetime
-from prophet import Prophet # Asegúrate de que Prophet esté instalado si lo vas a usar
-
-# Importar y cargar dotenv
+from prophet import Prophet 
 from dotenv import load_dotenv
-load_dotenv() # Esto cargará las variables del archivo .env
-
-# Para la barra de progreso en consola (tqdm), no es estrictamente necesario en producción pero útil para depuración
+load_dotenv() 
 try:
     from tqdm import tqdm
 except ImportError:
-    tqdm = lambda x, **kwargs: x # Función dummy si tqdm no está instalado
+    tqdm = lambda x, **kwargs: x 
 
 app = Flask(__name__)
 
 # Configuración de la aplicación principal
-app.config['UPLOAD_FOLDER'] = 'uploads' # Esta carpeta será efímera en Render
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # Límite de tamaño de archivo
+app.config['UPLOAD_FOLDER'] = 'uploads' 
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 
 
-# Asegurarse de que la carpeta 'uploads' exista (especialmente para guardar el resultado temporal)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 ALLOWED_EXTENSIONS = {'xlsx'}
@@ -45,23 +40,24 @@ def preparar_serie_faltantes(df, estacion):
     return proporcion
 
 # La función predecir_faltantes está comentada en tu código original, la mantengo así.
-# def predecir_faltantes(serie, umbral=0.01, meses_a_predecir=12):
-#     if len(serie) < 3:
-#         return []
-#     model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False)
-#     model.fit(serie)
-#     future = model.make_future_dataframe(periods=meses_a_predecir, freq='M')
-#     forecast = model.predict(future)
-#     hoy = pd.to_datetime(datetime.today().date())
-#     predicciones_futuras = forecast[forecast['ds'] > hoy]
-#     fechas_alerta = predicciones_futuras[predicciones_futuras['yhat'] > umbral]['ds'].dt.strftime('%Y-%m-%d').tolist()
-#     return fechas_alerta
+def predecir_faltantes(serie, umbral=0.01, meses_a_predecir=12):
+    if len(serie) < 3:
+        return []
+    model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False)
+    model.fit(serie)
+    future = model.make_future_dataframe(periods=meses_a_predecir, freq='M')
+    forecast = model.predict(future)
+    hoy = pd.to_datetime(datetime.today().date())
+    predicciones_futuras = forecast[forecast['ds'] > hoy]
+    fechas_alerta = predicciones_futuras[predicciones_futuras['yhat'] > umbral]['ds'].dt.strftime('%Y-%m-%d').tolist()
+    return fechas_alerta
+
 
 def detectar_anomalias_y_tendencias(df, estacion, umbral_porcentaje=50):
     """Detecta anomalías en los datos de una estación basándose en la variación porcentual."""
     df_tmp = df[['Fecha', estacion]].dropna().copy()
     df_tmp.sort_values('Fecha', inplace=True)
-    if not df_tmp.empty and len(df_tmp) > 1: # Asegurarse de que haya suficientes datos para calcular la variación
+    if not df_tmp.empty and len(df_tmp) > 1: 
         df_tmp['variacion'] = df_tmp[estacion].pct_change() * 100
         df_tmp['tipo'] = df_tmp['variacion'].apply(lambda x: 'anomalía' if pd.notna(x) and abs(x) > umbral_porcentaje else 'normal')
         df_tmp['Fecha_str'] = df_tmp['Fecha'].dt.strftime('%Y-%m-%d')
@@ -80,33 +76,52 @@ def generar_reporte_mensual(df, estacion):
     resumen['porcentaje_faltantes'] = (resumen['faltantes'] / resumen['total']) * 100
     return resumen
 
-def generar_recomendaciones(estado):
-    """Genera recomendaciones basadas en el estado del sensor."""
+def generar_recomendaciones(estacion, datos):
+    recomendaciones = []
+
+    porcentaje = datos.get('porcentaje', 0)
+    fechas_faltantes = datos.get('fechas_faltantes', [])
+    anomalias = datos.get('fechas_anomalias', [])
+    estado = datos.get('estado', 'ok')
+    fechas_mantenimiento = datos.get('fechas_mantenimiento', [])  # Agregamos esto
+
+    # Recomendación general por estado
     if estado == 'critico':
-        return [
-            "✅ Realizar inspección urgente del sensor en campo.",
-            "🔌 Verificar energía, conectividad y funcionamiento de componentes.",
-            "🔄 Reemplazar sensor si muestra daños irreversibles.",
-            "📊 Comparar datos con estaciones cercanas para validación.",
-            "🛠️ Programar mantenimiento correctivo inmediato."
-        ]
+        recomendaciones.append("🔴 Estado crítico: Se requiere una inspección urgente del sensor en campo.")
     elif estado == 'riesgo':
-        return [
-            "🧽 Realizar limpieza y mantenimiento preventivo.",
-            "📡 Verificar calibración y conectividad.",
-            "📉 Analizar eventos recientes de lluvia para descartar fallos.",
-            "🔍 Monitorear variaciones bruscas de datos.",
-            "🔄 Considerar actualización de firmware."
-        ]
+        recomendaciones.append("🟠 Estado de riesgo: Se recomienda mantenimiento preventivo inmediato.")
     elif estado == 'ok':
-        return [
-            "✅ Continuar con mantenimiento preventivo cada 3-6 meses.",
-            "📂 Realizar respaldo regular de datos.",
-            "📝 Mantener bitácora de eventos y mantenimientos.",
-            "🧑‍🏫 Capacitar al personal para conservación y análisis.",
-            "🛰️ Revisar conectividad y batería periódicamente."
-        ]
-    return []
+        recomendaciones.append("🟢 Estado óptimo: Continuar con mantenimiento preventivo regular.")
+
+    # Datos faltantes
+    if porcentaje > 30:
+        recomendaciones.append(f"⚠️ Más del 30% de los datos de {estacion} están faltantes. Esto puede afectar la calidad de los análisis climáticos.")
+        recomendaciones.append("📌 Verifica conectividad, batería y ubicación del sensor.")
+    elif porcentaje > 10:
+        recomendaciones.append(f"📉 Se detectó un {porcentaje:.1f}% de datos faltantes en {estacion}.")
+        recomendaciones.append("🔍 Revisar registros para identificar posibles patrones de fallos.")
+
+    if fechas_faltantes:
+        ultimas_fechas = ', '.join(fechas_faltantes[:3])
+        recomendaciones.append(f"📅 Fechas con datos faltantes: {ultimas_fechas}.")
+
+    # Agregar recomendación con la próxima fecha de mantenimiento predictivo
+    if fechas_mantenimiento:
+        prox_fecha = fechas_mantenimiento[0]
+        recomendaciones.append(f"🛠️ Próximo mantenimiento predictivo recomendado para el sensor {estacion}: {prox_fecha}.")
+
+    # Anomalías
+    if anomalias:
+        recomendaciones.append(f"⚠️ Se detectaron {len(anomalias)} anomalías en los datos de {estacion}.")
+        muestra = ', '.join([f"{a['Fecha_str']} ({a['variacion']:.1f}%)" for a in anomalias[:3]])
+        recomendaciones.append(f"📊 Ejemplos de anomalías: {muestra}.")
+        recomendaciones.append("🔧 Validar calibración del sensor y eventos climáticos extremos en esas fechas.")
+
+    # Recomendación general final
+    recomendaciones.append("📁 Registrar en bitácora todas las acciones realizadas.")
+    return recomendaciones
+
+
 
 def analizar_excel(filepath):
     """Analiza el archivo Excel para obtener el estado de los sensores."""
@@ -126,10 +141,10 @@ def analizar_excel(filepath):
             porcentaje = (datos_faltantes / total) * 100
             fechas_faltantes = df[df[estacion].isna()]['Fecha'].dt.strftime('%Y-%m-%d').tolist()
             serie = preparar_serie_faltantes(df, estacion)
-            # fechas_mantenimiento_predictivas = predecir_faltantes(serie, umbral=0.01) # Descomentar si usas Prophet
+            fechas_mantenimiento_predictivas = predecir_faltantes(serie, umbral=0.01) 
             anomalias = detectar_anomalias_y_tendencias(df, estacion)
             estado = 'ok'
-            if porcentaje > 30 and datos_faltantes > 0: # Añadido datos_faltantes > 0 para evitar crítico con 0 faltantes
+            if porcentaje > 30 and datos_faltantes > 0: 
                 estado = 'critico'
             elif porcentaje > 20 or len(anomalias) > 0:
                 estado = 'riesgo'
@@ -139,12 +154,20 @@ def analizar_excel(filepath):
                 'faltantes': datos_faltantes,
                 'porcentaje': porcentaje,
                 'fechas_faltantes': fechas_faltantes,
-                # 'fechas_mantenimiento': fechas_mantenimiento_predictivas, # Descomentar si usas Prophet
+                'fechas_mantenimiento': fechas_mantenimiento_predictivas, 
                 'fechas_anomalias': anomalias,
                 'estado': estado,
                 'alerta': estado in ['riesgo', 'critico'],
                 'reporte_mensual': generar_reporte_mensual(df, estacion).to_dict(orient='records'),
-                'recomendaciones': generar_recomendaciones(estado)
+                'recomendaciones': generar_recomendaciones(estacion, {
+                'porcentaje': porcentaje,
+                'fechas_faltantes': fechas_faltantes,
+                'fechas_anomalias': anomalias,
+                'estado': estado,
+                'fechas_mantenimiento': fechas_mantenimiento_predictivas  # <--- aquí agregar
+            })
+
+
             }
         else:
             print(f"Advertencia: La columna '{estacion}' no se encontró en el archivo Excel.")
@@ -171,9 +194,9 @@ def consultar_clima(fecha, lat=LAT, lon=LON):
     )
     try:
         r = requests.get(url)
-        r.raise_for_status() # Lanza una excepción para códigos de estado HTTP de error
+        r.raise_for_status() 
         data = r.json()
-        # Asegurarse de que los datos diarios existan y contengan los valores esperados
+
         if 'daily' in data and data['daily'] and 'precipitation_sum' in data['daily'] and \
            'windspeed_10m_max' in data['daily'] and 'temperature_2m_max' in data['daily']:
             return {
@@ -203,9 +226,8 @@ def consultar_clima(fecha, lat=LAT, lon=LON):
             "temperatura_max": None
         }
 
-# --- Variable global para almacenar los datos climáticos para el bot ---
-global_climate_data_df = None # Esta declaración inicial fuera de cualquier función está bien
-# Variable global para almacenar los resultados del análisis de sensores
+
+global_climate_data_df = None 
 global_sensor_analysis_results = {}
 
 # --- Rutas de la Aplicación ---
@@ -215,7 +237,7 @@ def index():
     """
     Ruta principal para la carga de archivos Excel y visualización de mantenimiento de sensores.
     """
-    global global_sensor_analysis_results # Declarar global para poder asignar
+    global global_sensor_analysis_results
     resultados = {}
     error = None
     if request.method == 'POST':
@@ -225,20 +247,25 @@ def index():
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
             resultados, error = analizar_excel(filepath)
-            global_sensor_analysis_results = resultados # Almacenar resultados del análisis de sensores
+            global_sensor_analysis_results = resultados 
         else:
             error = "Tipo de archivo no permitido o ningún archivo seleccionado."
     return render_template('index.html', resultados=resultados, error=error)
 
 @app.route('/datos-climaticos')
 def datos_climaticos_page():
-    # ¡CORRECCIÓN AQUÍ! Mueve la declaración 'global' al principio de la función.
-    global global_climate_data_df 
+    global global_climate_data_df
 
-    # La ruta del archivo Excel ahora es relativa al directorio raíz de la aplicación
-    # y se espera que esté en la carpeta 'data/' dentro del repositorio.
+  
+    upload_folder = os.path.abspath(app.config.get('UPLOAD_FOLDER', 'uploads'))
+    if not os.path.exists(upload_folder):
+        os.makedirs(upload_folder)
+        print(f"Carpeta creada en: {upload_folder}")
+    else:
+        print(f"Carpeta existe: {upload_folder}")
+
+    # Ruta del Excel de datos inicial
     excel_path = 'data/Precipitacion_Mensual__P42_P43_P5522062025222139.xlsx'
-
     if not os.path.exists(excel_path):
         print(f"Error: Archivo Excel no encontrado en {excel_path}")
         return "Error: El archivo Excel de precipitaciones no se encontró en el servidor. Asegúrate de que esté en la carpeta 'data/'.", 500
@@ -246,8 +273,10 @@ def datos_climaticos_page():
     try:
         df = pd.read_excel(excel_path)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True)
+        print(f"Archivo Excel leído correctamente. Shape: {df.shape}")
     except Exception as e:
         print(f"Error al leer el archivo Excel para datos climáticos: {e}")
+        traceback.print_exc()
         return "Error al procesar el archivo Excel para datos climáticos. Asegúrate de que sea un formato válido.", 500
 
     sensores = ['P42', 'P43', 'P55']
@@ -262,51 +291,69 @@ def datos_climaticos_page():
             print(f"Advertencia: El sensor '{sensor}' no se encontró en las columnas del Excel.")
 
     if not fechas_faltantes:
-        # Aquí también asignamos, por lo que la declaración 'global' debe estar antes.
         global_climate_data_df = pd.DataFrame(columns=['Fecha', 'Sensor', 'precipitacion_mm', 'viento_max_kmh', 'temperatura_max'])
         return render_template('resultado.html', datos=[])
-    
+
     faltantes_total = pd.concat(fechas_faltantes).reset_index(drop=True)
+    print(f"Fechas faltantes total: {faltantes_total.shape}")
 
     climas = []
     print(f"Consultando clima para {len(faltantes_total)} fechas con datos faltantes...")
     for _, row in tqdm(faltantes_total.iterrows(), total=len(faltantes_total), desc="Consultando clima"):
         clima = consultar_clima(row['Fecha'])
-        clima['Fecha'] = row['Sensor'] # Corregido: row['Fecha'] -> row['Sensor']
-        clima['Sensor'] = row['Sensor'] # Corregido: row['Sensor'] -> row['Sensor']
+        print(f"Clima consultado para fecha {row['Fecha']}: {clima}")
+        clima['Fecha'] = row['Fecha']
+        clima['Sensor'] = row['Sensor']
         climas.append(clima)
 
     df_clima = pd.DataFrame(climas)
-    # Usar 'left' merge para mantener todas las fechas faltantes, incluso si no se encontró clima
+
+   
+    faltantes_total['Fecha'] = pd.to_datetime(faltantes_total['Fecha'])
+    df_clima['Fecha'] = pd.to_datetime(df_clima['Fecha'])
+
     resultado = pd.merge(faltantes_total, df_clima, on=['Fecha', 'Sensor'], how='left')
 
-    # Almacenar el DataFrame en la variable global para que el bot pueda acceder a él
-    # Esta asignación ahora es válida porque 'global' se declaró al inicio de la función.
-    global_climate_data_df = resultado.copy() 
+    print(f"Resultado final shape: {resultado.shape}")
 
-    # Guardar archivo Excel con dos hojas: original y completados (temporalmente en Render)
-    output_excel_path = os.path.join(app.config['UPLOAD_FOLDER'], 'faltantes_resultado.xlsx')
+    global_climate_data_df = resultado.copy()
+
+    output_excel_path = os.path.join(upload_folder, 'faltantes_resultado.xlsx')
+
+    test_path = os.path.join(upload_folder, 'test.txt')
+    try:
+        with open(test_path, 'w') as f:
+            f.write('Prueba de escritura')
+        print(f"Archivo de prueba guardado correctamente en: {test_path}")
+    except Exception as e:
+        print(f"Error al guardar archivo de prueba: {e}")
+        traceback.print_exc()
+
+    # Guardar Excel con resultados
     try:
         with pd.ExcelWriter(output_excel_path, engine='xlsxwriter') as writer:
             df.to_excel(writer, sheet_name='Original', index=False)
             resultado.to_excel(writer, sheet_name='Completados', index=False)
-        print(f"Archivo 'faltantes_resultado.xlsx' guardado temporalmente en {output_excel_path}")
+        print(f"Archivo Excel guardado correctamente en {output_excel_path}")
     except Exception as e:
-        print(f"Error al guardar el archivo Excel de resultados: {e}")
-        # La aplicación puede continuar, pero la descarga podría fallar si el archivo no se guarda.
+        print("Error al guardar Excel:", e)
+        traceback.print_exc()
 
     datos = resultado.to_dict(orient='records')
     return render_template('resultado.html', datos=datos)
 
+
 @app.route('/descargar_faltantes')
 def descargar_faltantes():
-    """
-    Permite la descarga del archivo Excel generado con los datos faltantes y completados.
-    """
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], 'faltantes_resultado.xlsx')
+    upload_folder = os.path.abspath(app.config.get('UPLOAD_FOLDER', 'uploads'))
+    file_path = os.path.join(upload_folder, 'faltantes_resultado.xlsx')
+
+    print(f"Intentando enviar archivo: {file_path}")
+
     if os.path.exists(file_path):
         return send_file(file_path, as_attachment=True, download_name="faltantes_clima.xlsx")
     else:
+        print("Archivo no encontrado para descargar.")
         return 'Archivo no encontrado. Por favor, genera el reporte primero.', 404
 
 @app.route('/ask-clima-bot', methods=['POST'])
@@ -428,6 +475,5 @@ import os
 
 port = int(os.environ.get("PORT", 5000))
 app.run(host="0.0.0.0", port=port, debug=True)
-
 
 
