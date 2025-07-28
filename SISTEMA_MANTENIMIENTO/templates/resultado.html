@@ -88,6 +88,29 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
+        /* Nuevo estilo para el botón verde */
+        .btn-custom-green {
+            background-color: #28a745; /* Color verde */
+            color: white;
+            border: none;
+            border-radius: 8px; /* Mantener bordes redondeados */
+            font-weight: 600;
+            padding: 10px 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .btn-custom-green:hover {
+            background-color: #218838; /* Verde más oscuro al pasar el ratón */
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+            color: white;
+            text-decoration: none;
+        }
+        .btn-custom-green:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
         /* Estilos para el Chatbot flotante (igual que en index.html) */
         .chat-bubble {
             position: fixed;
@@ -219,7 +242,7 @@
             <a href="/descargar_faltantes" class="btn btn-custom-blue me-2">
                 Descargar Excel
             </a>
-            <a href="http://localhost:8501" class="btn btn-custom-blue" target="_blank">
+            <a href="https://URL_REAL_DE_TU_APP_STREAMLIT_EN_RENDER.onrender.com" class="btn btn-custom-green" target="_blank">
                 Ver Estadísticas
             </a>
         </div>
